@@ -1,0 +1,29 @@
+{
+  "name": "fetch-replay",
+  "version": "1.0.0",
+  "description": "Standalone FetchReplay App",
+  "main": "fetchReplay.js",
+  "bin": {
+    "fetch-replay": "fetchReplay.js"
+  },
+  "scripts": {
+    "build": "pkg ."
+  },
+  "pkg": {
+    "scripts": [],
+    "assets": [],
+    "outputPath": "dist",
+    "targets": [
+      "node18-win-x64"
+    ],
+    "prune": true
+  },
+  "dependencies": {
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-core": "^24.4.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
