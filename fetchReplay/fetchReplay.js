@@ -119,7 +119,7 @@ function parseReplayData(plays) {
         });
 
         // Match "Sent to Graveyard" actions from PUBLIC LOG
-        const graveyardMatches = [...publicLog.matchAll(/Sent .*? \"(.+?)\" .*? to GY/g)];
+        const graveyardMatches = [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)];
         graveyardMatches.forEach(match => {
             if (!graveyardCards[username]) graveyardCards[username] = [];
             graveyardCards[username].push(match[1]);
