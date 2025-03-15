@@ -81,6 +81,22 @@ async function fetchReplay(url) {
 
         if (replayData && replayData.length > 0) {
             console.log("\n🎮 --- Parsed Replay Data ---");
+
+            // ✅ Print Rock-Paper-Scissors Results (Now With Correct Names)
+            replayData.forEach(play => {
+                if (play.play === "RPS") {
+                    console.log(`🟢 ${play.player1} chose: ${play.player1_choice || "N/A"}`);
+                    console.log(`🔴 ${play.player2} chose: ${play.player2_choice || "N/A"}`);
+                    console.log(`🏆 Winner: ${play.winner || "N/A"}`);
+                    console.log('-------------------');
+                }
+            });
+
+            const filePath = `console.txt`;
+            // Convert replayData to a string before writing to the file
+            const replayDataString = typeof replayData === 'string' ? replayData : JSON.stringify(replayData, null, 2);
+
+            fs.writeFileSync(filePath, replayDataString, "utf-8");
             parseReplayData(replayData);
         } else {
             console.log("⚠️ No valid replay data found. Try again.");
@@ -93,49 +109,42 @@ async function fetchReplay(url) {
 
 // ✅ Function to parse replay data and extract logs
 function parseReplayData(plays) {
-    const drewCards = {};
-    const banishedCards = {};
-    const graveyardCards = {};
+    const playerDecks = {};
 
     plays.forEach(play => {
         if (!play.log || !play.log.username) return;
 
         const username = play.log.username;
+
+        // 🔥 Skip entries for "Duelingbook"
+        if (username === "Duelingbook") return;
+
         const publicLog = play.log.public_log || "";
         const privateLog = play.log.private_log || "";
 
+        if (!playerDecks[username]) playerDecks[username] = new Set();
+
         // Match "Drew" actions from PRIVATE LOG
         const drewMatches = [...privateLog.matchAll(/Drew \"(.+?)\"/g)];
-        drewMatches.forEach(match => {
-            if (!drewCards[username]) drewCards[username] = [];
-            drewCards[username].push(match[1]);
-        });
+        drewMatches.forEach(match => playerDecks[username].add(match[1]));
 
         // Match "Banished" actions from PUBLIC LOG
         const banishedMatches = [...publicLog.matchAll(/Banished \"(.+?)\"/g)];
-        banishedMatches.forEach(match => {
-            if (!banishedCards[username]) banishedCards[username] = [];
-            banishedCards[username].push(match[1]);
-        });
+        banishedMatches.forEach(match => playerDecks[username].add(match[1]));
 
         // Match "Sent to Graveyard" actions from PUBLIC LOG
         const graveyardMatches = [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)];
-        graveyardMatches.forEach(match => {
-            if (!graveyardCards[username]) graveyardCards[username] = [];
-            graveyardCards[username].push(match[1]);
-        });
+        graveyardMatches.forEach(match => playerDecks[username].add(match[1]));
     });
 
-    saveToFile("drew", drewCards);
-    saveToFile("banished", banishedCards);
-    saveToFile("graveyard", graveyardCards);
+    saveDeckFiles(playerDecks);
 }
 
-// ✅ Function to save extracted logs into text files
-function saveToFile(actionType, data) {
-    Object.keys(data).forEach(username => {
-        const filePath = `${actionType}-${username}.txt`;
-        fs.writeFileSync(filePath, data[username].join("\n"), "utf-8");
+// ✅ Function to save combined deck logs into a single text file per player
+function saveDeckFiles(playerDecks) {
+    Object.keys(playerDecks).forEach(username => {
+        const filePath = `${username}-deck.txt`;
+        fs.writeFileSync(filePath, [...playerDecks[username]].join("\n"), "utf-8");
         console.log(`✅ Saved ${filePath}`);
     });
 }
