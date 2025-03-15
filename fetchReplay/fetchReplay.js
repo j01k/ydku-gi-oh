@@ -122,29 +122,43 @@ function parseReplayData(plays) {
         const publicLog = play.log.public_log || "";
         const privateLog = play.log.private_log || "";
 
-        if (!playerDecks[username]) playerDecks[username] = new Set();
+        if (!playerDecks[username]) playerDecks[username] = {};
+
+        function addCardToDeck(logUsername, cardName) {
+            if (logUsername === username) {
+                playerDecks[username][cardName] = (playerDecks[username][cardName] || 0) + 1;
+            }
+        }
 
         // Match "Drew" actions from PRIVATE LOG
         const drewMatches = [...privateLog.matchAll(/Drew \"(.+?)\"/g)];
-        drewMatches.forEach(match => playerDecks[username].add(match[1]));
+        drewMatches.forEach(match => addCardToDeck(username, match[1]));
 
         // Match "Banished" actions from PUBLIC LOG
         const banishedMatches = [...publicLog.matchAll(/Banished \"(.+?)\"/g)];
-        banishedMatches.forEach(match => playerDecks[username].add(match[1]));
+        banishedMatches.forEach(match => addCardToDeck(username, match[1]));
 
         // Match "Sent to Graveyard" actions from PUBLIC LOG
-        const graveyardMatches = [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)];
-        graveyardMatches.forEach(match => playerDecks[username].add(match[1]));
+        const graveyardMatches = [...publicLog.matchAll(/Sent(?: Set)?\s*\"([^\"]+)\"(?: from .*?)?\s+to GY/g)];
+        graveyardMatches.forEach(match => addCardToDeck(username, match[1]));
     });
 
     saveDeckFiles(playerDecks);
 }
 
-// ✅ Function to save combined deck logs into a single text file per player
+// ✅ Function to save combined deck logs into a single text file per player, sorted by count (ascending)
 function saveDeckFiles(playerDecks) {
     Object.keys(playerDecks).forEach(username => {
         const filePath = `${username}-deck.txt`;
-        fs.writeFileSync(filePath, [...playerDecks[username]].join("\n"), "utf-8");
+        
+        // Sort cards by count (smallest to greatest)
+        const sortedCards = Object.entries(playerDecks[username])
+            .sort((a, b) => a[1] - b[1]); 
+
+        // Format content for the text file
+        let content = sortedCards.map(([cardName, count]) => `${cardName} x${count}`).join("\n");
+
+        fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
     });
 }
