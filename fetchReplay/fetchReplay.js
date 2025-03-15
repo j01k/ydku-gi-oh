@@ -6,7 +6,6 @@ const fs = require('fs');
 
 puppeteerExtra.use(StealthPlugin());
 
-// Create input prompt
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -31,7 +30,6 @@ function askForReplayURL() {
     });
 }
 
-// Function to fetch replay data
 async function fetchReplay(url) {
     console.log(`\n🔍 Fetching replay data from: ${url}`);
 
@@ -48,13 +46,11 @@ async function fetchReplay(url) {
         let replayData = null;
         let requestComplete = false;
 
-        // Intercept network response and extract JSON
         page.on("response", async (response) => {
             const requestUrl = response.url();
             if (requestUrl.includes("/view-replay")) {
                 try {
                     const json = await response.json();
-
                     if (json.plays && json.plays.length > 0) {
                         replayData = json.plays;
                         requestComplete = true;
@@ -69,7 +65,6 @@ async function fetchReplay(url) {
         console.log("🌐 Navigating to page...");
         await page.goto(url, { waitUntil: "networkidle2" });
 
-        // ⏳ Ensure we wait until the request completes
         let attempts = 0;
         while (!requestComplete && attempts < 5) {
             console.log(`⏳ Waiting for data... (Attempt ${attempts + 1}/5)`);
@@ -81,22 +76,6 @@ async function fetchReplay(url) {
 
         if (replayData && replayData.length > 0) {
             console.log("\n🎮 --- Parsed Replay Data ---");
-
-            // ✅ Print Rock-Paper-Scissors Results (Now With Correct Names)
-            replayData.forEach(play => {
-                if (play.play === "RPS") {
-                    console.log(`🟢 ${play.player1} chose: ${play.player1_choice || "N/A"}`);
-                    console.log(`🔴 ${play.player2} chose: ${play.player2_choice || "N/A"}`);
-                    console.log(`🏆 Winner: ${play.winner || "N/A"}`);
-                    console.log('-------------------');
-                }
-            });
-
-            const filePath = `console.txt`;
-            // Convert replayData to a string before writing to the file
-            const replayDataString = typeof replayData === 'string' ? replayData : JSON.stringify(replayData, null, 2);
-
-            fs.writeFileSync(filePath, replayDataString, "utf-8");
             parseReplayData(replayData);
         } else {
             console.log("⚠️ No valid replay data found. Try again.");
@@ -107,56 +86,92 @@ async function fetchReplay(url) {
     }
 }
 
-// ✅ Function to parse replay data and extract logs
 function parseReplayData(plays) {
-    const playerDecks = {};
+    let gameDecks = [];
+    let currentGame = -1;
 
     plays.forEach(play => {
-        if (!play.log || !play.log.username) return;
+        if (Array.isArray(play.log)) {
+            currentGame++;
+            gameDecks[currentGame] = {};
+            console.log(`\n🎮 Processing Game ${currentGame + 1}...`);
+        }
 
+        if (!play.log || !play.log.username) return;
         const username = play.log.username;
 
-        // 🔥 Skip entries for "Duelingbook"
-        if (username === "Duelingbook") return;
+        if (username === "Duelingbook") return; // Ignore system logs
 
         const publicLog = play.log.public_log || "";
         const privateLog = play.log.private_log || "";
 
-        if (!playerDecks[username]) playerDecks[username] = {};
+        if (!gameDecks[currentGame]) gameDecks[currentGame] = {};
+        if (!gameDecks[currentGame][username]) gameDecks[currentGame][username] = {};
 
-        function addCardToDeck(logUsername, cardName) {
-            if (logUsername === username) {
-                playerDecks[username][cardName] = (playerDecks[username][cardName] || 0) + 1;
-            }
+        function addCardToDeck(cardName, action) {
+            gameDecks[currentGame][username][cardName] = (gameDecks[currentGame][username][cardName] || 0) + 1;
+            
+            // ✅ Debugging Output: Print each occurrence
+            console.log(`📌 ${action}: ${cardName} → ${username}`);
         }
 
-        // Match "Drew" actions from PRIVATE LOG
-        const drewMatches = [...privateLog.matchAll(/Drew \"(.+?)\"/g)];
-        drewMatches.forEach(match => addCardToDeck(username, match[1]));
+        // 🔹 Match "Drew" actions from PRIVATE LOG
+        [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
 
-        // Match "Banished" actions from PUBLIC LOG
-        const banishedMatches = [...publicLog.matchAll(/Banished \"(.+?)\"/g)];
-        banishedMatches.forEach(match => addCardToDeck(username, match[1]));
+        // 🔹 Match "Banished" actions from PUBLIC LOG
+        [...publicLog.matchAll(/Banished \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Banished"));
 
-        // Match "Sent to Graveyard" actions from PUBLIC LOG
-        const graveyardMatches = [...publicLog.matchAll(/Sent(?: Set)?\s*\"([^\"]+)\"(?: from .*?)?\s+to GY/g)];
-        graveyardMatches.forEach(match => addCardToDeck(username, match[1]));
+        // 🔹 Match "Sent to Graveyard" actions from PUBLIC LOG
+        [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)]
+            .forEach(match => addCardToDeck(match[1], "Sent to GY"));
     });
 
-    saveDeckFiles(playerDecks);
+    gameDecks.forEach((gameDeck, gameIndex) => {
+        Object.keys(gameDeck).forEach(username => {
+            const filePath = `${username}-game${gameIndex + 1}-deck.txt`;
+            let content = "";
+
+            // ✅ Sort each individual game deck by lowest to highest count
+            const sortedCards = Object.entries(gameDeck[username])
+                .sort((a, b) => a[1] - b[1]);
+
+            sortedCards.forEach(([cardName, count]) => {
+                content += `${cardName} x${count}\n`;
+            });
+
+            fs.writeFileSync(filePath, content, "utf-8");
+            console.log(`✅ Saved ${filePath}`);
+        });
+    });
+
+    mergeGameDecks(gameDecks);
 }
 
-// ✅ Function to save combined deck logs into a single text file per player, sorted by count (ascending)
-function saveDeckFiles(playerDecks) {
-    Object.keys(playerDecks).forEach(username => {
-        const filePath = `${username}-deck.txt`;
-        
-        // Sort cards by count (smallest to greatest)
-        const sortedCards = Object.entries(playerDecks[username])
-            .sort((a, b) => a[1] - b[1]); 
+function mergeGameDecks(gameDecks) {
+    const finalDecks = {};
 
-        // Format content for the text file
-        let content = sortedCards.map(([cardName, count]) => `${cardName} x${count}`).join("\n");
+    gameDecks.forEach(gameDeck => {
+        Object.keys(gameDeck).forEach(username => {
+            if (!finalDecks[username]) finalDecks[username] = {};
+
+            Object.entries(gameDeck[username]).forEach(([cardName, count]) => {
+                // Keep the highest count seen across games, capped at 3
+                finalDecks[username][cardName] = Math.min(3, Math.max(finalDecks[username][cardName] || 0, count));
+            });
+        });
+    });
+
+    Object.keys(finalDecks).forEach(username => {
+        const filePath = `${username}-final-deck.txt`;
+        let content = "";
+
+        // ✅ Sort final deck by smallest to greatest count
+        const sortedCards = Object.entries(finalDecks[username])
+            .sort((a, b) => a[1] - b[1]);
+
+        sortedCards.forEach(([cardName, count]) => {
+            content += `${cardName} x${count}\n`;
+        });
 
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
