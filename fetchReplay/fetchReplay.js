@@ -11,6 +11,8 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
+let cardSerialMapping = {};
+
 function askForReplayURL() {
     rl.question("\n🔹 Enter DuelingBook replay URL (or press ENTER to exit): ", async (url) => {
         if (!url) {
@@ -119,6 +121,10 @@ function parseReplayData(plays) {
             console.log(`\n🎮 Processing Game ${currentGame + 1}...`);
         }
 
+        if (play.card && play.card.name && play.card.serial_number) {
+            cardSerialMapping[play.card.name] = play.card.serial_number;
+        }
+
         if (!play.log || !play.log.username) return;
         const username = play.log.username;
 
@@ -141,28 +147,7 @@ function parseReplayData(plays) {
             .forEach(match => addCardToDeck(match[1], "Sent to GY"));
     });
 
-    saveGameDecks(gameDecks);
     mergeGameDecks(gameDecks);
-}
-
-// ✅ Save Each Game's Decklist
-function saveGameDecks(gameDecks) {
-    gameDecks.forEach((gameDeck, gameIndex) => {
-        Object.keys(gameDeck).forEach(username => {
-            const filePath = `${username}-game${gameIndex + 1}-deck.txt`;
-            let content = "";
-
-            const sortedCards = Object.entries(gameDeck[username])
-                .sort((a, b) => a[1] - b[1]);
-
-            sortedCards.forEach(([cardName, count]) => {
-                content += `${cardName} x${count}\n`;
-            });
-
-            fs.writeFileSync(filePath, content, "utf-8");
-            console.log(`✅ Saved ${filePath}`);
-        });
-    });
 }
 
 // ✅ Merge Decks Across Games
@@ -190,11 +175,18 @@ function mergeGameDecks(gameDecks) {
     });
 
     Object.keys(finalDecks).forEach(username => {
-        const filePath = `${username}-final-deck.txt`;
-        let content = Object.entries(finalDecks[username])
-            .sort((a, b) => a[1] - b[1])
-            .map(([cardName, count]) => `${cardName} x${count}`)
-            .join("\n");
+        const filePath = `${username}-final-deck.ydk`;
+        let content = `#created by ...\n#main\n`;
+
+        const sortedCards = Object.entries(finalDecks[username])
+            .sort((a, b) => a[1] - b[1]);
+
+        sortedCards.forEach(([cardName, count]) => {
+            let serial = cardSerialMapping[cardName] || "UNKNOWN";
+            for (let i = 0; i < count; i++) {
+                content += `${serial}\n`;
+            }
+        });
 
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
@@ -202,7 +194,7 @@ function mergeGameDecks(gameDecks) {
 }
 
 function sanitizeError(error) {
-    return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[REDACTED_PATH]");
+    return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[🃏]");
 }
 
 askForReplayURL();
