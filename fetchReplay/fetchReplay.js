@@ -175,14 +175,18 @@ function mergeGameDecks(gameDecks) {
     });
 
     Object.keys(finalDecks).forEach(username => {
-        const filePath = `${username}-final-deck.txt`;
-        let content = Object.entries(finalDecks[username])
-            .sort((a, b) => a[1] - b[1])
-            .map(([cardName, count]) => {
-                let serial = cardSerialMapping[cardName] || "UNKNOWN";
-                return `${serial} (${cardName}) x${count}`;
-            })
-            .join("\n");
+        const filePath = `${username}-final-deck.ydk`;
+        let content = `#created by ...\n#main\n`;
+
+        const sortedCards = Object.entries(finalDecks[username])
+            .sort((a, b) => a[1] - b[1]);
+
+        sortedCards.forEach(([cardName, count]) => {
+            let serial = cardSerialMapping[cardName] || "UNKNOWN";
+            for (let i = 0; i < count; i++) {
+                content += `${serial}\n`;
+            }
+        });
 
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
@@ -190,7 +194,7 @@ function mergeGameDecks(gameDecks) {
 }
 
 function sanitizeError(error) {
-    return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[REDACTED_PATH]");
+    return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[🃏]");
 }
 
 askForReplayURL();
