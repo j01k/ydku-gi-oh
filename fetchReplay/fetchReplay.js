@@ -3,7 +3,6 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const puppeteerExtra = require('puppeteer-extra');
 const readline = require('readline');
 const fs = require('fs');
-const path = require('path');
 
 puppeteerExtra.use(StealthPlugin());
 
@@ -21,30 +20,18 @@ function askForReplayURL() {
         }
 
         if (!url.includes("duelingbook.com/replay?id=")) {
-            console.error("❌ Invalid URL. Please enter a valid replay URL.");
+            console.error("⚠️ Invalid URL format detected.");
             askForReplayURL();
             return;
         }
 
-        const betId = extractBetId(url);
-        if (!betId) {
-            console.error("❌ Could not extract Bet ID from URL.");
-            askForReplayURL();
-            return;
-        }
-
-        await fetchReplay(url, betId);
+        await fetchReplay(url);
         askForReplayURL();
     });
 }
 
-function extractBetId(url) {
-    const match = url.match(/id=([\d-]+)/);
-    return match ? match[1] : null;
-}
-
-async function fetchReplay(url, betId) {
-    console.log(`\n🔍 Fetching replay data from: ${url}`);
+async function fetchReplay(url) {
+    console.log(`\n🔍 Connecting to source...`);
 
     try {
         const browser = await puppeteer.launch({
@@ -53,7 +40,7 @@ async function fetchReplay(url, betId) {
             args: ["--no-sandbox", "--disable-setuid-sandbox"]
         });
 
-        console.log("🚀 Puppeteer launched successfully.");
+        console.log("🚀 Secure Connection Established.");
         const page = await browser.newPage();
 
         let replayData = null;
@@ -67,20 +54,20 @@ async function fetchReplay(url, betId) {
                     if (json.plays && json.plays.length > 0) {
                         replayData = json.plays;
                         requestComplete = true;
-                        console.log("✅ Replay data successfully retrieved.");
+                        console.log("✅ Data Stream Successfully Retrieved.");
                     }
                 } catch (err) {
-                    console.error("❌ Failed to parse JSON:", err);
+                    console.error(sanitizeError(err));
                 }
             }
         });
 
-        console.log("🌐 Navigating to page...");
+        console.log("🌐 Requesting Data...");
         await page.goto(url, { waitUntil: "networkidle2" });
 
         let attempts = 0;
         while (!requestComplete && attempts < 15) {
-            console.log(`⏳ Waiting for data... (Attempt ${attempts + 1}/15)`);
+            console.log(`⏳ Processing Data... (Attempt ${attempts + 1}/15)`);
             await new Promise(resolve => setTimeout(resolve, 3000));
             attempts++;
         }
@@ -88,17 +75,18 @@ async function fetchReplay(url, betId) {
         await browser.close();
 
         if (replayData && replayData.length > 0) {
-            console.log("\n🎮 --- Parsed Replay Data ---");
-            parseReplayData(replayData, betId);
+            console.log("\n🎮 --- Data Analysis in Progress ---");
+            parseReplayData(replayData);
         } else {
-            console.log("⚠️ No valid replay data found. Try again.");
+            console.log("⚠️ Unexpected System Interruption.");
         }
 
     } catch (error) {
-        console.error("❌ ERROR:", error);
+        console.error(sanitizeError(error));
     }
 }
 
+// ✅ Restriction Lists
 const limitToOne = new Set([
     "Black Luster Soldier - Envoy of the Beginning", "Breaker the Magical Warrior", "Cyber Jar",
     "Dark Magician of Chaos", "D.D. Warrior Lady", "Exodia the Forbidden One", "Exiled Force",
@@ -119,12 +107,8 @@ const limitToTwo = new Set([
     "Gravity Bind", "Last Turn"
 ]);
 
-function parseReplayData(plays, betId) {
-    const folderPath = path.join(__dirname, betId);
-    if (!fs.existsSync(folderPath)) {
-        fs.mkdirSync(folderPath);
-    }
-
+// ✅ Parse Replay Data
+function parseReplayData(plays) {
     let gameDecks = [];
     let currentGame = -1;
 
@@ -148,6 +132,7 @@ function parseReplayData(plays, betId) {
 
         function addCardToDeck(cardName, action) {
             gameDecks[currentGame][username][cardName] = (gameDecks[currentGame][username][cardName] || 0) + 1;
+            console.log(`📌 ${action}: ${cardName} → ${username}`);
         }
 
         [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
@@ -156,14 +141,15 @@ function parseReplayData(plays, betId) {
             .forEach(match => addCardToDeck(match[1], "Sent to GY"));
     });
 
-    saveGameDecks(gameDecks, folderPath);
-    mergeGameDecks(gameDecks, folderPath);
+    saveGameDecks(gameDecks);
+    mergeGameDecks(gameDecks);
 }
 
-function saveGameDecks(gameDecks, folderPath) {
+// ✅ Save Each Game's Decklist
+function saveGameDecks(gameDecks) {
     gameDecks.forEach((gameDeck, gameIndex) => {
         Object.keys(gameDeck).forEach(username => {
-            const filePath = path.join(folderPath, `${username}-game${gameIndex + 1}-deck.txt`);
+            const filePath = `${username}-game${gameIndex + 1}-deck.txt`;
             let content = "";
 
             const sortedCards = Object.entries(gameDeck[username])
@@ -179,7 +165,8 @@ function saveGameDecks(gameDecks, folderPath) {
     });
 }
 
-function mergeGameDecks(gameDecks, folderPath) {
+// ✅ Merge Decks Across Games
+function mergeGameDecks(gameDecks) {
     const finalDecks = {};
 
     gameDecks.forEach(gameDeck => {
@@ -189,9 +176,13 @@ function mergeGameDecks(gameDecks, folderPath) {
             Object.entries(gameDeck[username]).forEach(([cardName, count]) => {
                 let maxCount = Math.max(finalDecks[username][cardName] || 0, count);
 
-                if (limitToOne.has(cardName)) maxCount = 1;
-                else if (limitToTwo.has(cardName)) maxCount = Math.min(2, maxCount);
-                else maxCount = Math.min(3, maxCount);
+                if (limitToOne.has(cardName)) {
+                    maxCount = 1;
+                } else if (limitToTwo.has(cardName)) {
+                    maxCount = Math.min(2, maxCount);
+                } else {
+                    maxCount = Math.min(3, maxCount);
+                }
 
                 finalDecks[username][cardName] = maxCount;
             });
@@ -199,7 +190,7 @@ function mergeGameDecks(gameDecks, folderPath) {
     });
 
     Object.keys(finalDecks).forEach(username => {
-        const filePath = path.join(folderPath, `${username}-final-deck.txt`);
+        const filePath = `${username}-final-deck.txt`;
         let content = Object.entries(finalDecks[username])
             .sort((a, b) => a[1] - b[1])
             .map(([cardName, count]) => `${cardName} x${count}`)
@@ -208,6 +199,10 @@ function mergeGameDecks(gameDecks, folderPath) {
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
     });
+}
+
+function sanitizeError(error) {
+    return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[REDACTED_PATH]");
 }
 
 askForReplayURL();
