@@ -1,7 +1,7 @@
 {
-  "name": "fetch-replay",
-  "version": "1.0.0",
-  "description": "Standalone FetchReplay App",
+  "name": "ydku-gi-oh",
+  "version": "2.0.0",
+  "description": "Duelreplay to ydk converter",
   "main": "fetchReplay.js",
   "bin": {
     "fetch-replay": "fetchReplay.js"
