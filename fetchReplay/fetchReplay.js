@@ -35,81 +35,75 @@ function askForReplayURL() {
 async function fetchReplay(url) {
     console.log(`\n🔍 Connecting to source...`);
 
-    try {
-        const browser = await puppeteer.launch({
-            headless: false,
-            executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-            args: ["--no-sandbox", "--disable-setuid-sandbox"]
-        });
+    const browserPaths = [
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+        "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    ];
 
-        console.log("🚀 Secure Connection Established.");
-        const page = await browser.newPage();
+    let browser;
+    
+    for (const path of browserPaths) {
+        try {
+            browser = await puppeteer.launch({
+                headless: false,
+                executablePath: path,
+                args: ["--no-sandbox", "--disable-setuid-sandbox"]
+            });
+            console.log(`🚀 Using browser at: ${path}`);
+            break;
+        } catch (err) {
+            console.warn(`⚠️ Could not launch browser at: ${path}`);
+        }
+    }
 
-        let replayData = null;
-        let requestComplete = false;
+    if (!browser) {
+        console.error("❌ No supported browser found. Please install Chrome, Brave, Firefox, or Edge.");
+        process.exit(1);
+    }
 
-        page.on("response", async (response) => {
-            const requestUrl = response.url();
-            if (requestUrl.includes("/view-replay")) {
-                try {
-                    const json = await response.json();
-                    if (json.plays && json.plays.length > 0) {
-                        replayData = json.plays;
-                        requestComplete = true;
-                        console.log("✅ Data Stream Successfully Retrieved.");
-                    }
-                } catch (err) {
-                    console.error(sanitizeError(err));
+    const page = await browser.newPage();
+
+    let replayData = null;
+    let requestComplete = false;
+
+    page.on("response", async (response) => {
+        const requestUrl = response.url();
+        if (requestUrl.includes("/view-replay")) {
+            try {
+                const json = await response.json();
+                if (json.plays && json.plays.length > 0) {
+                    replayData = json.plays;
+                    requestComplete = true;
+                    console.log("✅ Data Stream Successfully Retrieved.");
                 }
+            } catch (err) {
+                console.error(sanitizeError(err));
             }
-        });
-
-        console.log("🌐 Requesting Data...");
-        await page.goto(url, { waitUntil: "networkidle2" });
-
-        let attempts = 0;
-        while (!requestComplete && attempts < 15) {
-            console.log(`⏳ Processing Data... (Attempt ${attempts + 1}/15)`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            attempts++;
         }
+    });
 
-        await browser.close();
+    console.log("🌐 Requesting Data...");
+    await page.goto(url, { waitUntil: "networkidle2" });
 
-        if (replayData && replayData.length > 0) {
-            console.log("\n🎮 --- Data Analysis in Progress ---");
-            parseReplayData(replayData);
-        } else {
-            console.log("⚠️ Unexpected System Interruption.");
-        }
+    let attempts = 0;
+    while (!requestComplete && attempts < 15) {
+        console.log(`⏳ Processing Data... (Attempt ${attempts + 1}/15)`);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        attempts++;
+    }
 
-    } catch (error) {
-        console.error(sanitizeError(error));
+    await browser.close();
+
+    if (replayData && replayData.length > 0) {
+        console.log("\n🎮 --- Data Analysis in Progress ---");
+        parseReplayData(replayData);
+    } else {
+        console.log("⚠️ Unexpected System Interruption.");
     }
 }
 
-// ✅ Restriction Lists
-const limitToOne = new Set([
-    "Black Luster Soldier - Envoy of the Beginning", "Breaker the Magical Warrior", "Cyber Jar",
-    "Dark Magician of Chaos", "D.D. Warrior Lady", "Exodia the Forbidden One", "Exiled Force",
-    "Injection Fairy Lily", "Jinzo", "Left Arm of the Forbidden One", "Left Leg of the Forbidden One",
-    "Morphing Jar", "Protector of the Sanctuary", "Reflect Bounder", "Right Arm of the Forbidden One",
-    "Right Leg of the Forbidden One", "Sacred Phoenix of Nephthys", "Sangan", "Sinister Serpent",
-    "Tribe-Infecting Virus", "Twin-Headed Behemoth", "Card Destruction", "Delinquent Duo", "Graceful Charity",
-    "Heavy Storm", "Lightning Vortex", "Mage Power", "Mystical Space Typhoon", "Pot of Greed",
-    "Premature Burial", "Snatch Steal", "Swords of Revealing Light", "United We Stand", "Call of the Haunted",
-    "Ceasefire", "Deck Devastation Virus", "Magic Cylinder", "Mirror Force", "Reckless Greed",
-    "Ring of Destruction", "Torrential Tribute"
-]);
-
-const limitToTwo = new Set([
-    "Abyss Soldier", "Dark Scorpion - Chick the Yellow", "Manticore of Darkness", "Marauding Captain",
-    "Night Assailant", "Vampire Lord", "Creature Swap", "Emergency Provisions", "Level Limit - Area B",
-    "Nobleman of Crossout", "Reinforcement of the Army", "Upstart Goblin", "Good Goblin Housekeeping",
-    "Gravity Bind", "Last Turn"
-]);
-
-// ✅ Parse Replay Data
 function parseReplayData(plays) {
     let gameDecks = [];
     let currentGame = -1;
@@ -130,27 +124,22 @@ function parseReplayData(plays) {
 
         if (username === "Duelingbook") return;
 
-        const publicLog = play.log.public_log || "";
         const privateLog = play.log.private_log || "";
 
         if (!gameDecks[currentGame]) gameDecks[currentGame] = {};
         if (!gameDecks[currentGame][username]) gameDecks[currentGame][username] = {};
 
-        function addCardToDeck(cardName, action) {
+        function addCardToDeck(cardName) {
             gameDecks[currentGame][username][cardName] = (gameDecks[currentGame][username][cardName] || 0) + 1;
-            console.log(`📌 ${action}: ${cardName} → ${username}`);
+            console.log(`📌 Drew: ${cardName} → ${username}`);
         }
 
-        [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
-        [...publicLog.matchAll(/Banished \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Banished"));
-        [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)]
-            .forEach(match => addCardToDeck(match[1], "Sent to GY"));
+        [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1]));
     });
 
     mergeGameDecks(gameDecks);
 }
 
-// ✅ Merge Decks Across Games
 function mergeGameDecks(gameDecks) {
     const finalDecks = {};
 
@@ -159,17 +148,7 @@ function mergeGameDecks(gameDecks) {
             if (!finalDecks[username]) finalDecks[username] = {};
 
             Object.entries(gameDeck[username]).forEach(([cardName, count]) => {
-                let maxCount = Math.max(finalDecks[username][cardName] || 0, count);
-
-                if (limitToOne.has(cardName)) {
-                    maxCount = 1;
-                } else if (limitToTwo.has(cardName)) {
-                    maxCount = Math.min(2, maxCount);
-                } else {
-                    maxCount = Math.min(3, maxCount);
-                }
-
-                finalDecks[username][cardName] = maxCount;
+                finalDecks[username][cardName] = Math.max(finalDecks[username][cardName] || 0, count);
             });
         });
     });
@@ -188,6 +167,8 @@ function mergeGameDecks(gameDecks) {
             }
         });
 
+        content += "#extra\n!side\n";
+        
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
     });
