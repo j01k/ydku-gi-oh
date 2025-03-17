@@ -12,6 +12,15 @@ const rl = readline.createInterface({
 });
 
 let cardSerialMapping = {};
+let trackGraveyard = false; // Default to false
+let graveyardCards = {}; // Stores GY cards per player
+
+function askForGraveyardTracking() {
+    rl.question("\n🔹 Track cards sent to Graveyard? (Y/N): ", (answer) => {
+        trackGraveyard = answer.trim().toUpperCase() === "Y";
+        askForReplayURL();
+    });
+}
 
 function askForReplayURL() {
     rl.question("\n🔹 Enter DuelingBook replay URL (or press ENTER to exit): ", async (url) => {
@@ -144,6 +153,13 @@ function parseReplayData(plays) {
             }
         }
 
+        // Track cards sent to GY if user enabled tracking
+        if (trackGraveyard && play.log.public_log) {
+            const publicLog = play.log.public_log || "";
+            [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)]
+                .forEach(match => trackGY(currentGame, play.log.username, match[1]));
+        }
+
         // Store card serial numbers if present
         if (play.card && play.card.name && play.card.serial_number) {
             cardSerialMapping[play.card.name] = play.card.serial_number;
@@ -155,20 +171,17 @@ function parseReplayData(plays) {
     function trackDraw(game, player, cardName) {
         if (!gameDecks[game]) gameDecks[game] = {};
         if (!gameDecks[game][player]) gameDecks[game][player] = {};
-
+    
         gameDecks[game][player][cardName] = (gameDecks[game][player][cardName] || 0) + 1;
         console.log(`📌 Drew: ${cardName} → ${player}`);
     }
+    
+    function trackGY(game, player, cardName) {
+        if (!graveyardCards[player]) graveyardCards[player] = {};
+        graveyardCards[player][cardName] = (graveyardCards[player][cardName] || 0) + 1;
+        console.log(`💀 Sent to GY: ${cardName} → ${player}`);
+    }
 }
-
-
-
-
-
-
-
-
-
 
 function mergeGameDecks(gameDecks) {
     const finalDecks = {};
@@ -176,7 +189,6 @@ function mergeGameDecks(gameDecks) {
     gameDecks.forEach(gameDeck => {
         Object.keys(gameDeck).forEach(username => {
             if (!finalDecks[username]) finalDecks[username] = {};
-
             Object.entries(gameDeck[username]).forEach(([cardName, count]) => {
                 finalDecks[username][cardName] = Math.max(finalDecks[username][cardName] || 0, count);
             });
@@ -187,18 +199,22 @@ function mergeGameDecks(gameDecks) {
         const filePath = `${username}-final-deck.ydk`;
         let content = `#created by ...\n#main\n`;
 
-        const sortedCards = Object.entries(finalDecks[username])
-            .sort((a, b) => a[1] - b[1]);
-
-        sortedCards.forEach(([cardName, count]) => {
+        Object.entries(finalDecks[username]).forEach(([cardName, count]) => {
             let serial = cardSerialMapping[cardName] || "UNKNOWN";
             for (let i = 0; i < count; i++) {
                 content += `${serial}\n`;
             }
         });
 
+        if (trackGraveyard && graveyardCards[username]) {
+            Object.entries(graveyardCards[username]).forEach(([cardName, count]) => {
+                let serial = cardSerialMapping[cardName] || "UNKNOWN";
+                for (let i = 0; i < count; i++) {
+                    content += `${serial}\n`;
+                }
+            });
+        }
         content += "#extra\n!side\n";
-
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
     });
@@ -208,4 +224,5 @@ function sanitizeError(error) {
     return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[🃏]");
 }
 
-askForReplayURL();
+// Start by asking if the user wants to track GY
+askForGraveyardTracking();
