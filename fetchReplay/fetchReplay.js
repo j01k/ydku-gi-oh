@@ -43,7 +43,7 @@ async function fetchReplay(url) {
     ];
 
     let browser;
-    
+
     for (const path of browserPaths) {
         try {
             browser = await puppeteer.launch({
@@ -108,37 +108,67 @@ function parseReplayData(plays) {
     let gameDecks = [];
     let currentGame = -1;
 
+    // Process each play in order
     plays.forEach(play => {
+        if (!play.log) return;
+
+        // Handle high-level logs (initial draws and game start)
         if (Array.isArray(play.log)) {
-            currentGame++;
-            gameDecks[currentGame] = {};
-            console.log(`\n🎮 Processing Game ${currentGame + 1}...`);
+            play.log.forEach(logEntry => {
+                if (!logEntry.private_log || !logEntry.username) return;
+
+                const username = logEntry.username;
+                const privateLog = logEntry.private_log;
+
+                // Detect new game start
+                if (privateLog.includes("Chose to go first")) {
+                    currentGame++;
+                    gameDecks[currentGame] = {};
+                    console.log(`\n🎮 Processing Game ${currentGame + 1}...`);
+                }
+
+                // Track initial draws
+                [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
+                    trackDraw(currentGame, username, match[1]);
+                });
+            });
         }
 
+        // Handle in-game draws (nested single log format)
+        if (play.log.private_log && play.log.username) {
+            const username = play.log.username;
+            if (username !== "Duelingbook") {
+                [...play.log.private_log.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
+                    trackDraw(currentGame, username, match[1]);
+                });
+            }
+        }
+
+        // Store card serial numbers if present
         if (play.card && play.card.name && play.card.serial_number) {
             cardSerialMapping[play.card.name] = play.card.serial_number;
         }
-
-        if (!play.log || !play.log.username) return;
-        const username = play.log.username;
-
-        if (username === "Duelingbook") return;
-
-        const privateLog = play.log.private_log || "";
-
-        if (!gameDecks[currentGame]) gameDecks[currentGame] = {};
-        if (!gameDecks[currentGame][username]) gameDecks[currentGame][username] = {};
-
-        function addCardToDeck(cardName) {
-            gameDecks[currentGame][username][cardName] = (gameDecks[currentGame][username][cardName] || 0) + 1;
-            console.log(`📌 Drew: ${cardName} → ${username}`);
-        }
-
-        [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1]));
     });
 
     mergeGameDecks(gameDecks);
+
+    function trackDraw(game, player, cardName) {
+        if (!gameDecks[game]) gameDecks[game] = {};
+        if (!gameDecks[game][player]) gameDecks[game][player] = {};
+
+        gameDecks[game][player][cardName] = (gameDecks[game][player][cardName] || 0) + 1;
+        console.log(`📌 Drew: ${cardName} → ${player}`);
+    }
 }
+
+
+
+
+
+
+
+
+
 
 function mergeGameDecks(gameDecks) {
     const finalDecks = {};
@@ -168,7 +198,7 @@ function mergeGameDecks(gameDecks) {
         });
 
         content += "#extra\n!side\n";
-        
+
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
     });
