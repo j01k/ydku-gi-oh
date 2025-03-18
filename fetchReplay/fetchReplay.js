@@ -11,8 +11,6 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-let cardSerialMapping = {};
-
 function askForReplayURL() {
     rl.question("\n🔹 Enter DuelingBook replay URL (or press ENTER to exit): ", async (url) => {
         if (!url) {
@@ -104,7 +102,6 @@ async function fetchReplay(url) {
         }
     }
 
-// ✅ Parse Replay Data
 // ✅ Parse Replay Data
 function parseReplayData(plays) {
     let gameDecks = [];
