@@ -16,7 +16,16 @@ let trackGraveyard = false; // Default to false
 let graveyardCards = {}; // Stores GY cards per player
 
 function askForGraveyardTracking() {
-    rl.question("\n🔹 Track cards sent to Graveyard? (Y/N): ", (answer) => {
+    rl.question("\n🔹 Track cards sent to Graveyard? [Y/N] (or press ENTER to exit): ", (answer) => {
+        if (!answer) {
+            console.log("\n👋 Exiting...");
+            rl.close();
+            process.exit(0);
+        }
+        if (!["Y", "N", "YES", "NO"].includes(answer.toUpperCase())) {
+            console.log("⚠️  Enter Y/N (case insensitive).");
+            askForGraveyardTracking()
+        }
         trackGraveyard = answer.trim().toUpperCase() === "Y";
         askForReplayURL();
     });
@@ -37,7 +46,7 @@ function askForReplayURL() {
         }
 
         await fetchReplay(url);
-        askForReplayURL();
+        askForGraveyardTracking();
     });
 }
 
