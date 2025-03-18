@@ -227,28 +227,32 @@ function addCardToDeck(gameDecks, game, player, cardName, action, cardSerialMapp
 function mergeGameDecks(gameDecks, cardSerialMapping) {
     const finalDecks = {};
 
-    // ✅ Collect all drawn cards without filtering
+    // ✅ Collect highest occurrence of each card across all games
     gameDecks.forEach(gameDeck => {
         Object.keys(gameDeck).forEach(username => {
-            if (!finalDecks[username]) finalDecks[username] = [];
-            
+            if (!finalDecks[username]) finalDecks[username] = {};
+
             Object.entries(gameDeck[username]).forEach(([cardName, data]) => {
                 const { count, serial } = data;
-                for (let i = 0; i < count; i++) {
-                    finalDecks[username].push(serial); // Store serial directly
+                
+                // ✅ Store the highest occurrence of each card per player
+                if (!finalDecks[username][serial] || finalDecks[username][serial] < count) {
+                    finalDecks[username][serial] = count;
                 }
             });
         });
     });
 
-    // ✅ Write each player's deck exactly as recorded
+    // ✅ Write each player's deck with the highest occurrence of each card
     Object.keys(finalDecks).forEach(username => {
         const filePath = `${username}-final-deck.ydk`;
         let content = `#created by ...\n#main\n`;
 
-        // Write each serial in order without filtering
-        finalDecks[username].forEach(serial => {
-            content += `${serial}\n`;
+        // Write each card's serial the maximum number of times it appeared
+        Object.entries(finalDecks[username]).forEach(([serial, maxCount]) => {
+            for (let i = 0; i < maxCount; i++) {
+                content += `${serial}\n`;
+            }
         });
 
         content += "#extra\n!side\n";
@@ -256,6 +260,7 @@ function mergeGameDecks(gameDecks, cardSerialMapping) {
         console.log(`✅ Saved ${filePath}`);
     });
 }
+
 
 
 
