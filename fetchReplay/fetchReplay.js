@@ -109,55 +109,95 @@ function parseReplayData(plays) {
     let gameDecks = [];
     let currentGame = -1;
 
+    // Process each play in order
     plays.forEach(play => {
-        if (Array.isArray(play.log)) {
-            currentGame++;
-            gameDecks[currentGame] = {};
-            console.log(`\n🎮 Processing Game ${currentGame + 1}...`);   
-        }
-        
+        if (!play.log) return;
 
-        if (play.card && play.card.name && play.card.serial_number) {
-            cardSerialMapping[play.card.name] = play.card.serial_number;
-        }
-
-        if (!play.log || !play.log.username) return;
-        const username = play.log.username;
-
-        if (username === "Duelingbook") return;
-        const publicLog = play.log.public_log || "";
-        const privateLog = play.log.private_log || "";
-
-        if (!gameDecks[currentGame]) gameDecks[currentGame] = {};
-        if (!gameDecks[currentGame][username]) gameDecks[currentGame][username] = {};
-
-        function addCardToDeck(cardName, action) {
-            gameDecks[currentGame][username][cardName] = (gameDecks[currentGame][username][cardName] || 0) + 1;
-            console.log(`📌 ${action}: ${cardName} → ${username}`);
-        }
         // Handle high-level logs (initial draws and game start)
         if (Array.isArray(play.log)) {
             play.log.forEach(logEntry => {
                 if (!logEntry.private_log || !logEntry.username) return;
+
                 const username = logEntry.username;
                 const privateLog = logEntry.private_log;
+
+                // Detect new game start
+                if (privateLog.includes("Chose to go first")) {
+                    currentGame++;
+                    gameDecks[currentGame] = {};
+                    console.log(`\n🎮 Processing Game ${currentGame + 1}...`);
+                }
+
                 // Track initial draws
-                [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
+                [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
+                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck");
+                });
             });
         }
 
-        [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
-        [...privateLog.matchAll(/Added \"(.+?)\" from Deck to hand/g)].forEach(match => addCardToDeck(match[1], "Added to Hand from deck"));
-        [...publicLog.matchAll(/Milled \"(.+?)\" from top of deck/g)].forEach(match => addCardToDeck(match[1], "Milled from deck"));
-        [...publicLog.matchAll(/Special Summoned \"(.+?)\" from Deck/g)].forEach(match => addCardToDeck(match[1], "Special Summoned from deck"));
-        [...publicLog.matchAll(/Banished \"(.+?)\" from Deck/g)].forEach(match => addCardToDeck(match[1], "Banished from deck"));
-        [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)" from Deck to GY/g)]
-            .forEach(match => addCardToDeck(match[1], "Sent to GY from deck"));
+        // Ensure a game index exists before proceeding
+        if (currentGame === -1) return;
 
+        // Handle in-game logs
+        if (play.log.private_log && play.log.username) {
+            const username = play.log.username;
+            const privateLog = play.log.private_log;
+            if (username !== "Duelingbook") {
+                [...privateLog.matchAll(/Drew \"(.+?)\" from Deck/g)].forEach(match => {
+                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck");
+                });
+                [...privateLog.matchAll(/Added \"(.+?)\" from Deck to hand/g)].forEach(match => {
+                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck");
+                });
+            }
+        }
+
+        if (play.log.public_log && play.log.username) {
+            const username = play.log.username;
+            const publicLog = play.log.public_log;
+            
+            [...publicLog.matchAll(/Milled \"(.+?)\" from top of deck/g)].forEach(match => {
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Milled from deck");
+            });
+            [...publicLog.matchAll(/Special Summoned \"(.+?)\" from Deck/g)].forEach(match => {
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Special Summoned from deck");
+            });
+            [...publicLog.matchAll(/Banished \"(.+?)\" from Deck/g)].forEach(match => {
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Banished from deck");
+            });
+            [...publicLog.matchAll(/Sent(?: Set)?\s*\"([^\"]+)\" from Deck to GY/g)].forEach(match => {
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Sent to GY from deck");
+            });
+        }
+
+        // Store card serial numbers if present
+        if (play.card && play.card.name && play.card.serial_number) {
+            cardSerialMapping[play.card.name] = play.card.serial_number;
+        }
     });
 
     mergeGameDecks(gameDecks);
 }
+
+function addCardToDeck(gameDecks, game, player, cardName, action) {
+    if (game < 0) return; // Prevents accessing invalid game index
+    if (!gameDecks[game]) gameDecks[game] = {}; // ✅ Ensure initialization
+    if (!gameDecks[game][player]) gameDecks[game][player] = {};
+
+    gameDecks[game][player][cardName] = (gameDecks[game][player][cardName] || 0) + 1;
+    console.log(`📌 ${action}: ${cardName} → ${player}`);
+}
+
+function addCardToDeck(gameDecks, game, player, cardName, action) {
+    if (game < 0) return; // Prevents accessing invalid game index
+    if (!gameDecks[game]) gameDecks[game] = {}; // ✅ Ensure initialization
+    if (!gameDecks[game][player]) gameDecks[game][player] = {};
+
+    gameDecks[game][player][cardName] = (gameDecks[game][player][cardName] || 0) + 1;
+    console.log(`📌 ${action}: ${cardName} → ${player}`);
+}
+
+
 
 function mergeGameDecks(gameDecks) {
     const finalDecks = {};
