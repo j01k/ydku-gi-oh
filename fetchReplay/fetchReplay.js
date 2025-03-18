@@ -12,24 +12,6 @@ const rl = readline.createInterface({
 });
 
 let cardSerialMapping = {};
-let trackGraveyard = false; // Default to false
-let graveyardCards = {}; // Stores GY cards per player
-
-function askForGraveyardTracking() {
-    rl.question("\n🔹 Track cards sent to Graveyard? [Y/N] (or press ENTER to exit): ", (answer) => {
-        if (!answer) {
-            console.log("\n👋 Exiting...");
-            rl.close();
-            process.exit(0);
-        }
-        if (!["Y", "N", "YES", "NO"].includes(answer.toUpperCase())) {
-            console.log("⚠️  Enter Y/N (case insensitive).");
-            askForGraveyardTracking()
-        }
-        trackGraveyard = answer.trim().toUpperCase() === "Y";
-        askForReplayURL();
-    });
-}
 
 function askForReplayURL() {
     rl.question("\n🔹 Enter DuelingBook replay URL (or press ENTER to exit): ", async (url) => {
@@ -46,7 +28,7 @@ function askForReplayURL() {
         }
 
         await fetchReplay(url);
-        askForGraveyardTracking();
+        askForReplayURL();
     });
 }
 
@@ -83,113 +65,98 @@ async function fetchReplay(url) {
 
     const page = await browser.newPage();
 
-    let replayData = null;
-    let requestComplete = false;
+        let replayData = null;
+        let requestComplete = false;
 
-    page.on("response", async (response) => {
-        const requestUrl = response.url();
-        if (requestUrl.includes("/view-replay")) {
-            try {
-                const json = await response.json();
-                if (json.plays && json.plays.length > 0) {
-                    replayData = json.plays;
-                    requestComplete = true;
-                    console.log("✅ Data Stream Successfully Retrieved.");
+        page.on("response", async (response) => {
+            const requestUrl = response.url();
+            if (requestUrl.includes("/view-replay")) {
+                try {
+                    const json = await response.json();
+                    if (json.plays && json.plays.length > 0) {
+                        replayData = json.plays;
+                        requestComplete = true;
+                        console.log("✅ Data Stream Successfully Retrieved.");
+                    }
+                } catch (err) {
+                    console.error(sanitizeError(err));
                 }
-            } catch (err) {
-                console.error(sanitizeError(err));
             }
+        });
+
+        console.log("🌐 Requesting Data...");
+        await page.goto(url, { waitUntil: "networkidle2" });
+
+        let attempts = 0;
+        while (!requestComplete && attempts < 15) {
+            console.log(`⏳ Processing Data... (Attempt ${attempts + 1}/15)`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            attempts++;
         }
-    });
 
-    console.log("🌐 Requesting Data...");
-    await page.goto(url, { waitUntil: "networkidle2" });
+        await browser.close();
 
-    let attempts = 0;
-    while (!requestComplete && attempts < 15) {
-        console.log(`⏳ Processing Data... (Attempt ${attempts + 1}/15)`);
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        attempts++;
+        if (replayData && replayData.length > 0) {
+            console.log("\n🎮 --- Data Analysis in Progress ---");
+            parseReplayData(replayData);
+        } else {
+            console.log("⚠️ Unexpected System Interruption.");
+        }
     }
 
-    await browser.close();
-
-    if (replayData && replayData.length > 0) {
-        console.log("\n🎮 --- Data Analysis in Progress ---");
-        parseReplayData(replayData);
-    } else {
-        console.log("⚠️ Unexpected System Interruption.");
-    }
-}
-
+// ✅ Parse Replay Data
 function parseReplayData(plays) {
     let gameDecks = [];
     let currentGame = -1;
 
-    // Process each play in order
     plays.forEach(play => {
-        if (!play.log) return;
+        if (Array.isArray(play.log)) {
+            currentGame++;
+            gameDecks[currentGame] = {};
+            console.log(`\n🎮 Processing Game ${currentGame + 1}...`);   
+        }
+        
 
+        if (play.card && play.card.name && play.card.serial_number) {
+            cardSerialMapping[play.card.name] = play.card.serial_number;
+        }
+
+        if (!play.log || !play.log.username) return;
+        const username = play.log.username;
+
+        if (username === "Duelingbook") return;
+        const publicLog = play.log.public_log || "";
+        const privateLog = play.log.private_log || "";
+
+        if (!gameDecks[currentGame]) gameDecks[currentGame] = {};
+        if (!gameDecks[currentGame][username]) gameDecks[currentGame][username] = {};
+
+        function addCardToDeck(cardName, action) {
+            gameDecks[currentGame][username][cardName] = (gameDecks[currentGame][username][cardName] || 0) + 1;
+            console.log(`📌 ${action}: ${cardName} → ${username}`);
+        }
         // Handle high-level logs (initial draws and game start)
         if (Array.isArray(play.log)) {
             play.log.forEach(logEntry => {
                 if (!logEntry.private_log || !logEntry.username) return;
-
                 const username = logEntry.username;
                 const privateLog = logEntry.private_log;
-
-                // Detect new game start
-                if (privateLog.includes("Chose to go first")) {
-                    currentGame++;
-                    gameDecks[currentGame] = {};
-                    console.log(`\n🎮 Processing Game ${currentGame + 1}...`);
-                }
-
                 // Track initial draws
-                [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
-                    trackDraw(currentGame, username, match[1]);
-                });
+                [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
             });
         }
 
-        // Handle in-game draws (nested single log format)
-        if (play.log.private_log && play.log.username) {
-            const username = play.log.username;
-            if (username !== "Duelingbook") {
-                [...play.log.private_log.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
-                    trackDraw(currentGame, username, match[1]);
-                });
-            }
-        }
+        [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => addCardToDeck(match[1], "Drew"));
+        [...privateLog.matchAll(/Added \"(.+?)\" from Deck to hand/g)].forEach(match => addCardToDeck(match[1], "Added to Hand from deck"));
+        [...publicLog.matchAll(/Milled \"(.+?)\" from top of deck/g)].forEach(match => addCardToDeck(match[1], "Milled from deck"));
+        [...publicLog.matchAll(/Special Summoned \"(.+?)\" from Deck/g)].forEach(match => addCardToDeck(match[1], "Special Summoned from deck"));
+        [...publicLog.matchAll(/Banished \"(.+?)\" from Deck/g)].forEach(match => addCardToDeck(match[1], "Banished from deck"));
+        [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)" from Deck to GY/g)]
+            .forEach(match => addCardToDeck(match[1], "Sent to GY from deck"));
 
-        // Track cards sent to GY if user enabled tracking
-        if (trackGraveyard && play.log.public_log) {
-            const publicLog = play.log.public_log || "";
-            [...publicLog.matchAll(/Sent(?: Set)?\s*"([^"]+)"(?: from .*?)?\s+to GY/g)]
-                .forEach(match => trackGY(currentGame, play.log.username, match[1]));
-        }
-
-        // Store card serial numbers if present
-        if (play.card && play.card.name && play.card.serial_number) {
-            cardSerialMapping[play.card.name] = play.card.serial_number;
-        }
     });
 
     mergeGameDecks(gameDecks);
-
-    function trackDraw(game, player, cardName) {
-        if (!gameDecks[game]) gameDecks[game] = {};
-        if (!gameDecks[game][player]) gameDecks[game][player] = {};
-    
-        gameDecks[game][player][cardName] = (gameDecks[game][player][cardName] || 0) + 1;
-        console.log(`📌 Drew: ${cardName} → ${player}`);
-    }
-    
-    function trackGY(game, player, cardName) {
-        if (!graveyardCards[player]) graveyardCards[player] = {};
-        graveyardCards[player][cardName] = (graveyardCards[player][cardName] || 0) + 1;
-        console.log(`💀 Sent to GY: ${cardName} → ${player}`);
-    }
 }
 
 function mergeGameDecks(gameDecks) {
@@ -214,15 +181,6 @@ function mergeGameDecks(gameDecks) {
                 content += `${serial}\n`;
             }
         });
-
-        if (trackGraveyard && graveyardCards[username]) {
-            Object.entries(graveyardCards[username]).forEach(([cardName, count]) => {
-                let serial = cardSerialMapping[cardName] || "UNKNOWN";
-                for (let i = 0; i < count; i++) {
-                    content += `${serial}\n`;
-                }
-            });
-        }
         content += "#extra\n!side\n";
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
@@ -233,5 +191,4 @@ function sanitizeError(error) {
     return error.stack.replace(/([A-Z]:\\|\/)?[\w-]+(\\|\/)[\w-]+(\\|\/)?/g, "[🃏]");
 }
 
-// Start by asking if the user wants to track GY
-askForGraveyardTracking();
+askForReplayURL();
