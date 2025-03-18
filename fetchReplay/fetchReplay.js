@@ -138,7 +138,7 @@ function parseReplayData(plays) {
                 // Track initial draws
                 [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
                     const cardName = match[1];
-                    addCardToDeck(gameDecks, currentGame, username, cardName, "Drew from deck", cardSerialMapping, plays);
+                    addCardToDeck(gameDecks, currentGame, username, cardName, "Initial draw from deck", cardSerialMapping, plays);
                 });
             });
         }
@@ -151,7 +151,7 @@ function parseReplayData(plays) {
             const username = play.log.username;
             const privateLog = play.log.private_log;
             if (username !== "Duelingbook") {
-                [...privateLog.matchAll(/Drew \"(.+?)\" from Deck/g)].forEach(match => {
+                [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
                     addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck", cardSerialMapping, plays);
                 });
                 [...privateLog.matchAll(/Added \"(.+?)\" from Deck to hand/g)].forEach(match => {
