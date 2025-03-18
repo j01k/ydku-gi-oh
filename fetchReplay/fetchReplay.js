@@ -106,7 +106,6 @@ async function fetchReplay(url) {
 
 // ✅ Parse Replay Data
 // ✅ Parse Replay Data
-// ✅ Parse Replay Data
 function parseReplayData(plays) {
     let gameDecks = [];
     let currentGame = -1;
@@ -138,7 +137,8 @@ function parseReplayData(plays) {
 
                 // Track initial draws
                 [...privateLog.matchAll(/Drew \"(.+?)\"/g)].forEach(match => {
-                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck", cardSerialMapping);
+                    const cardName = match[1];
+                    addCardToDeck(gameDecks, currentGame, username, cardName, "Drew from deck", cardSerialMapping, plays);
                 });
             });
         }
@@ -152,10 +152,10 @@ function parseReplayData(plays) {
             const privateLog = play.log.private_log;
             if (username !== "Duelingbook") {
                 [...privateLog.matchAll(/Drew \"(.+?)\" from Deck/g)].forEach(match => {
-                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck", cardSerialMapping);
+                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck", cardSerialMapping, plays);
                 });
                 [...privateLog.matchAll(/Added \"(.+?)\" from Deck to hand/g)].forEach(match => {
-                    addCardToDeck(gameDecks, currentGame, username, match[1], "Drew from deck", cardSerialMapping);
+                    addCardToDeck(gameDecks, currentGame, username, match[1], "Added from deck to hand", cardSerialMapping, plays);
                 });
             }
         }
@@ -165,16 +165,16 @@ function parseReplayData(plays) {
             const publicLog = play.log.public_log;
             
             [...publicLog.matchAll(/Milled \"(.+?)\" from top of deck/g)].forEach(match => {
-                addCardToDeck(gameDecks, currentGame, username, match[1], "Milled from deck", cardSerialMapping);
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Milled from deck", cardSerialMapping, plays);
             });
             [...publicLog.matchAll(/Special Summoned \"(.+?)\" from Deck/g)].forEach(match => {
-                addCardToDeck(gameDecks, currentGame, username, match[1], "Special Summoned from deck", cardSerialMapping);
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Special Summoned from deck", cardSerialMapping, plays);
             });
             [...publicLog.matchAll(/Banished \"(.+?)\" from Deck/g)].forEach(match => {
-                addCardToDeck(gameDecks, currentGame, username, match[1], "Banished from deck", cardSerialMapping);
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Banished from deck", cardSerialMapping, plays);
             });
             [...publicLog.matchAll(/Sent(?: Set)?\s*\"([^\"]+)\" from Deck to GY/g)].forEach(match => {
-                addCardToDeck(gameDecks, currentGame, username, match[1], "Sent to GY from deck", cardSerialMapping);
+                addCardToDeck(gameDecks, currentGame, username, match[1], "Sent to GY from deck", cardSerialMapping, plays);
             });
         }
     });
@@ -182,14 +182,39 @@ function parseReplayData(plays) {
     mergeGameDecks(gameDecks, cardSerialMapping);
 }
 
-function addCardToDeck(gameDecks, game, player, cardName, action, cardSerialMapping) {
+// ✅ Search entire JSON for a missing serial number
+function findCardSerial(plays, cardName) {
+    // 1️⃣ First, check `plays` for serial number
+    for (const play of plays) {
+        if (play.card && play.card.name === cardName && play.card.serial_number) {
+            return play.card.serial_number;
+        }
+    }
+
+    // 2️⃣ If not found, search the full JSON response (cards dataset in `plays`)
+    for (const play of plays) {
+        if (Array.isArray(play.cards)) {
+            for (const card of play.cards) {
+                if (card.name === cardName && card.serial_number) {
+                    return card.serial_number;
+                }
+            }
+        }
+    }
+
+    // ❌ Not found, return "UNKNOWN"
+    return "UNKNOWN";
+}
+
+// ✅ Modify `addCardToDeck` to use the improved lookup
+function addCardToDeck(gameDecks, game, player, cardName, action, cardSerialMapping, plays) {
     if (game < 0) return; // Prevents accessing invalid game index
     if (!gameDecks[game]) gameDecks[game] = {}; // ✅ Ensure initialization
     if (!gameDecks[game][player]) gameDecks[game][player] = {};
 
-    // Get the serial number, update mapping dynamically if not found
-    if (!cardSerialMapping[cardName]) {
-        cardSerialMapping[cardName] = "UNKNOWN";
+    // 🔍 Search for serial dynamically
+    if (!cardSerialMapping[cardName] || cardSerialMapping[cardName] === "UNKNOWN") {
+        cardSerialMapping[cardName] = findCardSerial(plays, cardName);
     }
     const serial = cardSerialMapping[cardName];
 
@@ -201,31 +226,34 @@ function addCardToDeck(gameDecks, game, player, cardName, action, cardSerialMapp
     console.log(`📌 ${action}: ${cardName} (${serial}) → ${player}`);
 }
 
+
 function mergeGameDecks(gameDecks, cardSerialMapping) {
     const finalDecks = {};
+
+    // ✅ Collect all drawn cards without filtering
     gameDecks.forEach(gameDeck => {
         Object.keys(gameDeck).forEach(username => {
-            if (!finalDecks[username]) finalDecks[username] = {};
+            if (!finalDecks[username]) finalDecks[username] = [];
+            
             Object.entries(gameDeck[username]).forEach(([cardName, data]) => {
                 const { count, serial } = data;
-                if (!finalDecks[username][cardName]) {
-                    finalDecks[username][cardName] = { count: 0, serial };
+                for (let i = 0; i < count; i++) {
+                    finalDecks[username].push(serial); // Store serial directly
                 }
-                finalDecks[username][cardName].count = Math.max(finalDecks[username][cardName].count, count);
             });
         });
     });
 
+    // ✅ Write each player's deck exactly as recorded
     Object.keys(finalDecks).forEach(username => {
         const filePath = `${username}-final-deck.ydk`;
         let content = `#created by ...\n#main\n`;
 
-        Object.entries(finalDecks[username]).forEach(([cardName, data]) => {
-            const { count, serial } = data;
-            for (let i = 0; i < count; i++) {
-                content += `${serial}\n`;
-            }
+        // Write each serial in order without filtering
+        finalDecks[username].forEach(serial => {
+            content += `${serial}\n`;
         });
+
         content += "#extra\n!side\n";
         fs.writeFileSync(filePath, content, "utf-8");
         console.log(`✅ Saved ${filePath}`);
